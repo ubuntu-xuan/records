@@ -1,0 +1,279 @@
+数据清洗
+
+4.1 检查重复数据 未观测数据和异常数据
+4.1.1 重复数据
+  检查是否有重复数据：
+    df.count()  == df.distinct().count() ?
+  删除重复数据:
+  df = df.dropDuplicates()
+
+  # 查看ID以外的列
+  df.select([
+      c for c in df.columns if c != 'id'
+  ]).distinct().count()
+ 
+  # 删除id以外的列的重复数据
+  df = df.dropDuplicates(subset=[
+      c for c in df.columns if c!= 'id'  
+  ])
+
+  # 检验是否有重复的ID
+  .agg(): 对数据集的每一列进行操作
+  # 计算ID的总数和ID的唯一个数
+  import pyspark.sql.functions as fn # 导入sql.functions库
+  df.agg(
+      fn.count('id').alias('count'),
+      fn.countDistinct('id').alias('distinct')
+  ).show()
+  # 给每一行赋值一个唯一的ID
+  df.withColumn('new_id',fn.monotonically_increasing_id()).show() 
+
+4.1.2 未观测数据
+  查找每行缺少的观测数据：
+  df.rdd.map(
+	  lambda row:(row['id'], sum([c == None for c in row]))
+  ).collect()
+
+  df.where('id == 3').show()
+ 
+  # 每一列中缺失的观测数据的百分比
+  # .agg()在整体DataFrame不分组聚合
+  df.agg(*[
+        (1 - (fn.count(c) / fn.count('*'))).alias(c + '_missing')
+	    for c in df.columns # 获取每个列名
+  ])
+  notes:
+    .count()的方法的*参数指示该方法计算所有的列
+    *之前的列指示.agg()方法将该列表处理为一组独立的参数传递给函数
+
+  # 移除缺失值过多的列
+  df_miss_no_income = df.select([
+	  c for c in df.columns if c != 'income'
+  ])
+
+  # 移除超出某个阈值的行
+  df_miss_no_income.dropna(thresh=3).show()
+    
+  填充一个平均数、中间值或者其它计算值。需要先计算出这个值，创建一个带值的代码字典,再把它传递给.fillna()
+  means = df.agg(
+	    *[fn.mean(c).alias(c)
+		    for c in df.columns.columns if c != 'gender']
+  ).toPandas().to_dict('records')[0]
+
+  """
+    means:
+    {'age':**,
+     'height':**,
+     'id',4.0,
+     'weight': **
+    }
+  """
+  means['gender'] = 'missing'
+  df_miss_no_income.fillna(means).show()
+
+4.1.3 离群值
+  IQR: 上分位与下分位之差
+  (Q1-1.5IQR, Q3+1.5IQR)之内可以认为没有离群值 
+
+  cols = ['weight','height','age']
+  bounds = {}
+
+  # approxQuantile(列名,分位数或列表,可接受的错误程度)
+  for col in cols:
+      quantiles = df_outliers.approxQuantile(
+ 		col, [0.25, 0.75], 0.05
+      )
+
+      IQR = quantiles[1] - quantiles[0]
+
+	  bounds[col] = [
+		 quantiles[0] - 1.5 * IQR,
+	 	 quantiles[1] + 1.5 * IQR
+	  ]      
+
+  outliers = df_out.select(*['id']  + [
+		(
+			(df_outliers[c] < bounds[c][0]) | 
+			(df_outliers[c] > bounds[c][1])
+		).alias(c + '_o') for c in cols
+  ])
+  outliers.show()
+
+  # 列出和其它剩余分布明显不同的值:
+  # 通过id全连接
+  df_out = df_out.join(outliers, on='id')
+  df_out.filter('weight_o') \ # weight_o为true的行 
+    .select('id','weight').show()
+
+
+4.2.1 描述性统计
+  有多少个非缺失的观测数据 列的平均值  标准偏差 最小值 最大值
+
+  # 加载数据并转换成DataFrame
+  import pyspqrk.sql.types as typ
+  fraud = sc.textFile("ccFraud.csv.gz")
+  header = fraud.first()
+  # 剔除第一行，并将所有数据转换为int类型
+  fraud = fraud.filter(lambda row: row != header).map(lambda row: [int(elem) for elem in row.split(',')])
+  # 构造schema
+  fields = [
+		typ.StructField(h[1:-1], typ.IntegerType(), True)
+ 		for h in header.split(',')
+	]
+ 
+  schema = typ.StructType(fields)
+  
+  fraud_df = spark.createDataFrame(fraud, schema)
+  fraud_df.printSchema()
+
+  # 计算性别的频率
+  fraud_df.groupby('gender').count().show()
+
+  # 对于真正的数值特征,可以用.describe()
+  numerical = ['balance','numTrans','numIntlTrans']
+  desc = fraud_df.describe(numerical)
+  desc.show()
+  
+  Out: count mean stddev min max等信息
+
+  # 对balance进行偏态检查: 是统计数据分布偏斜方向和程度的度量，是统计数据分布非对称程度的数字特征
+  # 正偏态 正态 负偏态
+  fraud_df.agg({'balance':'skewness'}).show()
+
+4.4.2 相关性
+  特征与之间的相关性
+  # 创建一个相关矩阵
+  numerical = ['balance','numTrans','numIntlTrans']
+  n_numerical = len(numerical)  
+  
+  corr = []
+
+  for i in range(0,n_numerical):
+      temp = [None] * i
+      for i in range(i,n_numerical):
+          temp.append(fuaud_df.corr(numerical[i], numerical[j]))	
+      corr.append(temp)
+
+4.3 数据可视化
+  %matplotlib inline
+  import matploatlib.pyplot as plt 
+  plt.sytle.use('ggplot')
+  import bokeh.charts as chrt
+  from bokeh.io improt output_notebook
+
+  output_notebook
+  
+4.3.1 直方图
+  1. 聚集工作节点中的数据并返回一个汇总bins列表和直方图和每个bin中的计数给驱动程序。
+  2. 返回所有的数据点给驱动程序,并且允许用绘图库的方法。
+  3. 对数据进行采样,然后将它们返回给驱动程序进行绘图。
+
+  # 先对数据进行聚合:
+  hists = fraud_df.select('balance').rdd.flatMap(lambda row: row).histogram(20) 
+  
+  data = {
+    'bins': hists[0][:-1],
+    'freq': hists[1]
+  }
+
+  fig = plt.figure(figsize=(12,9))
+  ax = fig.add_subplot(1, 1, 1)
+  ax.bar(data['bins'], data['freq'], width=2000) # 来自matplotlib
+  ax.set_title('Histogram of \'balance\'')
+
+  plt.savefig('B05793_05_22.png', dpi=300)  
+
+  # 通过Bokeh创建直方图：
+  b_hist = chrt.Bar(
+      data,
+      values='frep',label='bins',
+      title='Histogram of \'balance\'')
+  chrt.show(b_hist)
+
+Notes:
+  1.histogram - - 直方图
+    val a = sc.parallelize(List(1.1,1.2,1.3,2.0,2.1,7.4,7.5,7.6,8.8,9.0),3)
+    a.histogram(5)
+    res0:(Array[Double], Array[Long]) = (Array(1.1, 2.68, 4.26, 5.84, 7.42, 9.0),Array(5, 0, 0, 1, 4))
+    输入的参数buckets可以是一个数字，也可以是一个列表
+    输出结果为一个元组，元组包含两个列表分别是桶(直方图的边界)和直方图的频数
+    注意：
+      1、桶必须是排好序的，并且不包含重复元素，至少有两个元素
+      2、所有直方图的结果集合区右边是开区间，最后一个区间除外。
+      计算方式 : 一、参数buckets是一个数字的情况: 根据桶的总数来计算
+	先用排好序的数组的边界值来得出两个桶之间的间距 (9.0-1.1)/5 = 1.58
+	所以得到第一个元组(直方图的边界) 1.1-2.68 2.68-4.26 以此类推
+	然后计算每个桶中的频数 : 数组中的数字在桶中的分布情况, 位于第一个区间(1.1~2.68) 中的数字有 1.1、1.2、1.3、2.0、2.1 一共5个 对应第二个数组中的第一个数字
+
+  2.bar
+函数原型:
+matplotlib.pyplot.bar(left, height, width=0.8, bottom=None, hold=None, **kwargs)
+基本参数:
+left        每个柱x轴左边界
+bottom      每个柱y轴下边界
+height      柱高度(Y轴方向) 
+width       柱宽度(X轴方向)
+以上参数可以设置为数值或者list
+但要保证如果为list, len(list)要一致
+绘制的方形为:
+    X: left   --- left+width
+    Y: bottom --- bottom+height
+返回值:
+    matplotlib.patches.Rectangle
+柱状图使用bottom扩展即可化为甘特图 Gantt Chart
+其他参数:
+color       Bar颜色
+edgecolor   Bar边界线颜色
+align       可选['left'(default) | 'center']
+            决定整个bar图分布
+            默认left表示默认从左边界开始绘制,center会将图绘制在中间位置
+xerr        x方向error bar
+yerr        y方向error bar
+ecolor      error bar颜色
+capsize     error bar横线宽度(default 3)
+
+
+  # 采用Bokeh创建直方图
+  b_hist = chrt.Bar(data, values='freq', label='bins', title='Histogram of \'balance\'')
+  chrt.show(b_hist)
+
+  # 当数据集比较小时,也可用:
+  # 对数据使用matplotlib的.hist()或Bokeh的.Histogram()
+  data_driver = {
+    'obs': fraud_df.select('balance').rdd.flatMap(lambda row: row
+    ).collect()
+  }
+  fig = plt.figure(figsize=(12,9))
+  ax = fig.add_subplot(1, 1, 1)
+
+  ax.hist(data_driver['obs'], bins=20)
+  ax.set_title('Histogram of \'balance\' using .hist()')
+  plt.savefig('B05793_05_24.png', dpi=300)
+
+  b_hist_driver = chrt.Histogram(data_driver, values='obs', title='Histogram of \'balance\' using .Histogram()', bins=20)
+  chrt.show(b_hist_driver)
+
+4.3.2 特征之间的交互
+  散点图(Scatter charts)
+  # 将欺诈数据集作为一个阶层抽取0.02%样本:
+  numerical = ['balance','numTrans','numIntlTrans']
+
+  data_sample = fraud_df.sampleBy(
+  	'gender', {1: 0.0002, 2: 0.002} # 根据gender来取样
+  ).select(numerical) 
+
+  data_multi = dict([
+	(elem, data_sample.select(elem).rdd.flatMap(lambda row: row).collect())
+        for elem in numerical
+  ])
+  
+  sctr = chrt.Scatter(data_multi, x='balance', y='numTrans')
+  chrt.show(sctr)
+
+  
+
+
+
+
+
+

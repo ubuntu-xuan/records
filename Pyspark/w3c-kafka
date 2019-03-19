@@ -1,0 +1,45 @@
+https://www.w3cschool.cn/apache_kafka/apache_kafka_basic_operations.html
+
+多个代理集群设置:
+
+master:
+  conf/server.properties:
+    broker.id=1
+    zookeeper.connect=192.168.0.2:2181,192.168.0.3:2181,192.168.0.4:2181
+
+slave01:
+  conf/server.properties:
+    broker.id=2
+    zookeeper.connect=192.168.0.2:2181,192.168.0.3:2181,192.168.0.4:2181
+
+slave02:
+  conf/server.properties:
+    broker.id=3
+    zookeeper.connect=192.168.0.2:2181,192.168.0.3:2181,192.168.0.4:2181
+
+分别在三个服务器上启动：
+  bin/kafka-server-start.sh config/server.properties &
+
+操作：
+  创建主题：
+    bin/kafka-topics.sh --create --zookeeper localhost:2181 --replication-factor 3 -partitions 1 --topic Multibrokerapplication
+    ps: --replication-factor 3: 有三个节点，所以有三个备份 
+	-partitions 1: 一个分区
+
+  Describe 命令用于检查哪个代理正在侦听当前创建的主题
+    bin/kafka-topics.sh --describe --zookeeper localhost:2181 --topic Multibrokerapplication
+
+  生产者生产数据:
+     bin/kafka-console-producer.sh --broker-list localhost:9092 --topic Multibrokerapplication
+  消费者消费数据：
+     bin/kafka-console-consumer.sh --bootstrap-server  localhost:9092 --topic Multibrokerapplication  --from-beginning
+
+基本主题操作：
+  1. 列出主题
+     bin/kafka-topics.sh --list --zookeeper localhost:2181
+  2. 修改主题
+     bin/kafka-topics.sh --zookeeper localhost:2181 --alter --topic Hello-Kafka --partitions 2
+  3. 删除主题
+     bin/kafka-topics.sh --zookeeper localhost:2181 --delete --topic Hello-kafka
+
+

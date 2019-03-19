@@ -1,0 +1,120 @@
+2.2 创建RDD
+  data = sc.parallelize([(),()])
+  # 引用本地或外部的文件
+  data_from_file = sc.textFile()
+2.2.1 Schema
+  RDD是无Schema的数据结构
+  .collect() 执行把该数据集送回驱动的操作,可能访问对象中的数据 
+2.2.3 Lambda表达式
+  # 定义函数
+  def extractInformation(row): 
+    return rs
+
+  # map会对data_from_file的每一行row执行extractInformation
+  data_from_file_conv = data_from_file.map(extractInformation)
+
+2.3 全局作用域和局部作用域
+
+2.4 转换
+2.4.1  .map()转换
+  (1) data_2014 = data_from_file_conv.map(lambda row : int(row[16]))
+  (2) data_2014_2 = data_from_file_conv.map(
+		lambda row : (row[16], int(row[16]):)
+      )
+2.4.2  .filter()
+  .filter(
+    lambda row: row[16] == "2014" and row[21] == '0'
+  )
+  .count()
+2.4.3 .flatMap()
+  .flatMap(lambda row: (row[16], int(row[16]) + 1)
+  )
+  把每一行看作一个列表对待，然后将所有的记录简单地加入到一起
+2.4.4 .distinct()
+  .map(
+      lambda row: row[5]
+  ).distinct()
+.collect()
+2.4.5 .sample(指定采样是否应该替换，返回数据的比例，伪随机数产生器的种子) 返回数据集的随机样本
+2.4.6 .leftOuterJoin()
+  rdd1 = sc.parallelize([('a',1),('b',4),('c',10)])
+  rdd2 = sc.parallelize([('a',4),('a',1),('b',6),('d',15)])
+  rdd3 = rdd1.leftOuterJoin(rdd2)
+  # 根据两个数据集中都有的值来连接两个RDD，并返回左侧的RDD记录，而右边的记录附加在两个RDD匹配的地方
+  Out: [('c',(10, None)),('b',(4,'6')),('a',(1,4)),('a',(1,1))]
+  Notes: 这是一个高开销的方法，在必要时才使用
+  
+  .join()
+  rdd4 = rdd1.join(rdd2)
+  rdd4.collect()
+  
+  Out: [('b',(4,'6')),('a',(1,4)),('a',(1,1))]
+
+  .intersection() 返回两个rdd中相同的记录
+  rdd5 = rdd1.intersection(rdd2)
+  rdd5.collect()
+  
+  Out: [('a',1)]
+
+2.4.7 .repartition() 重新对数据集进行分区，需要谨慎使用
+  rdd1 = rdd1.repartition(4)
+  len(rdd1.glom().collect())
+
+2.5 操作
+2.5.1  .take()
+       .takeSample()
+2.5.2 .collect()
+2.5.3 .reduce() 使用指定的方法减少RDD中的元素 
+  计算RDD总的元素数量：
+    rdd1.map(lambda row: row[1]).reduce(lambda x,y: x + y)
+    Out: 15
+  Notes: reducer传递的函数需要是关联的,即元素顺序改变，结果不变,该函数还需要是交换的,即操作符顺序改变,
+           结果不变。
+         关联规则的例子是(5 + 2) + 3 = 5 + ( 2 + 3),交换规则的例子是5 + 2 +3 = 3 +2 + 5,
+	    因此,需要注意传递给reducer的功能是什么。
+	 例如以下RDD只有一个分区:
+	    data_reduce = sc.parallerlize([1, 2, .5, .1, 5, .2],1)
+	    期望值是10：
+		works = data_reduce.reduce(lambda x,y: x / y)
+	    但是,如果将数据划分为三个分区是错误的：
+	        data_reduce = sc.parallerlize([1, 2, .5, .1, 5, .2],3)
+		data_reduce.reduce(lambda x,y: x / y)
+		产生的结果为0.004
+
+  .reduceByKey()和.reduce()方法类似,但是在键-键基础上进行:
+    data_key = sc.parallelize(
+      [('a',4),('b',3),('c',2),('a',8),('d',2),('b',1),('d',3),4]	
+    )
+    data_key.reduceByKey(lambda x,y: x + y).collect()
+
+    Out: [('b',4),('c',2),('a',12),('d',5)]
+2.5.4 .count()
+2.5.5 .saveAsTextFile()
+	可以让RDD保存为文本文件：每个文件一个分区	
+	data_key.saveAsTextFile('/path/data_key.txt')
+
+	要读取它，需要解析它，因为所有行都被视为字符串
+	def parseInput(row):
+		import re
+		pattern = re.compile(r'\(\'([a-z])\', ([0-9])\)')
+		row_split = pattern.split(row)
+		return (row_split[1],int(row_split[2]))
+
+	data_key_reread = sc \
+		.textFile(
+			'/path/data_key.txt') \ 
+		.map(parseInput)     
+	data_key_reread.collect()
+
+2.5.6 .foreach()
+    对RDD里的每个元素,用迭代的方式应用相同的函数;和.map()比较,.foreach()方法按照一个接一个的方式,对
+  每一条记录应用一个定义好的函数,当希望将数据保存到pyspark本身不支持的数据库时很有用。
+
+
+.groupBy():接收一个函数，这个函数返回的值作为key，然后通过这个key来对里面的元素进行分组
+
+
+
+
+
+

@@ -1,0 +1,171 @@
+http://spark.apachecn.org/#/docs/6
+
+10.1 什么是Spark Streaming
+  采用RDD批量模式（批量处理数据）差加快处理速度
+
+  输入数据流 --> spark streaming --> 输入数据batch --> spark engine  --> 已处理数据batch
+
+
+  Spark Streaming的主要抽象是离散流（DStream），它代表了前面提到的构成数据流的那些小批量
+  DStream建立在RDD上
+
+10.2 为什么需要Spark Streaming
+  .流ETL：将数据推入下游系统之前对其进行持续的清洗和聚合。通常可以减少最终数据存储中的量。
+  .触发器：实时检测行为或异常事件，及时触发下游动作。例如当一个设备接近了检测器或者基地，就会触发警报
+  .数据浓缩：将实时数据与其它数据集连接，可以进行更丰富的分析。例如将实时天气信息与航班信息结合，以建立更好的旅行警报。
+ .复杂会话和持续学习：与实时流相关联的多级事件被持续分析，以更新机器学习模型。例如与在线游戏相关联的用户活动游，允许我们更好地做用户分类。
+
+10.3 Spark Streaming应用程序数据流是什么 
+
+Spark-driver  workers  streaming源与目标间的数据流
+
+
+10.4 使用DStream简化Streaming应用程序
+
+
+# network_wordcount.py
+
+# Streaming Word Count Example
+#    Original Source: https://spark.apache.org/docs/1.6.0/streaming-programming-guide.html
+#
+# To run this example:
+#   Terminal 1:  nc -lk 9999
+#	Terminal 2:  ./bin/spark-submit streaming_word_count.py localhost 9999
+#   Note, type words into Terminal 1
+#
+
+# Import the necessary classes and create a local SparkContext and Streaming Contexts
+from pyspark import SparkContext
+from pyspark.streaming import StreamingContext
+
+# Create Spark Context with two working threads (note, `local[2]`)
+sc = SparkContext("local[2]", "NetworkWordCount")
+
+# Create local StreamingContextwith batch interval of 1 second
+ssc = StreamingContext(sc, 1)
+
+# Create DStream that will connect to the stream of input lines from connection to localhost:9999
+lines = ssc.socketTextStream("localhost", 9999)
+
+# Split lines into words
+words = lines.flatMap(lambda line: line.split(" "))
+
+# Count each word in each batch
+pairs = words.map(lambda word: (word, 1))
+wordCounts = pairs.reduceByKey(lambda x, y: x + y)
+
+# Print the first ten elements of each RDD generated in this DStream to the console
+wordCounts.pprint()
+
+# Start the computation
+ssc.start()             
+
+# Wait for the computation to terminate
+ssc.awaitTermination()  
+
+# 提交任务
+/opt/spark-2.3.0-bin-hadoop2.7/bin/spark-submit ../examples/src/main/python/streaming/network_wordcount.py localhost 9999
+
+
+
+10.5 全局聚合快速入门
+UpadateStateByKey/mapWithState
+
+# 每次输出都是每个单词的总人数
+# stateful_network_wordcount.py
+
+from __future__ import print_function
+
+import sys
+
+from pyspark import SparkContext
+from pyspark.streaming import StreamingContext
+
+if __name__ == "__main__":
+    if len(sys.argv) != 3:
+        print("Usage: stateful_network_wordcount.py <hostname> <port>", file=sys.stderr)
+        exit(-1)
+    sc = SparkContext(appName="PythonStreamingStatefulNetworkWordCount")
+    ssc = StreamingContext(sc, 1)
+    # 注意，使用 updateStateByKey 需要配置的检查点的目录，这里是更详细关于讨论 CheckPointing 的部分。
+    ssc.checkpoint("checkpoint")
+
+    # RDD with initial state (key, value) pairs
+    initialStateRDD = sc.parallelize([(u'hello', 1), (u'world', 1)])
+
+    def updateFunc(new_values, last_sum):
+        return sum(new_values) + (last_sum or 0)
+
+    lines = ssc.socketTextStream(sys.argv[1], int(sys.argv[2]))
+    running_counts = lines.flatMap(lambda line: line.split(" "))\
+                          .map(lambda word: (word, 1))\
+                          .updateStateByKey(updateFunc, initialRDD=initialStateRDD)
+			  # updateStateByKey 保持一个文本数据流中每个单词的运行次数
+    running_counts.pprint()
+
+    ssc.start()
+    ssc.awaitTermination()
+
+
+10.6 结构化流介绍
+结构化流将Streamin概念与DataFrame/Dataset相结合
+
+
+# 演示从S3读取数据流并存储到MySQL数据库的批量聚合(batch aggregation)
+logs = spark.read.json('s3://logs')
+
+logs.groupBy(logs.UserId).agg(sum(logs.Duration)) \ 
+  .write.jdbc('jdbc:mysql//...')
+
+# 以下是连续聚合(continous aggregation)的伪代码：
+logs = spark.readStream.json('s3://logs').load()
+sq = logs.groupBy(logs.UserId).agg(sum(logs.Duration))
+  .writeStream.format('json').start()
+#
+sq.isActive
+sq.stop()
+
+
+# 采用DataFrame
+
+from pyspark.sql import SparkSession
+from pyspark.sql.functions import explode
+from pyspark.sql.functions import split
+
+spark = SparkSession \ 
+	.builder \ 
+	.appName("StructuredNetworkWordCount")
+	.getOrCreate()
+
+lines = spark \ 
+	.readStream \ 
+	.format('socket') \ 
+	.option('host','localhost') \ 
+	.option('port',9999) \ 
+	.load()
+
+# Pyspark SQL的explode和split函数将读取行分割成单词
+words = lines.select(
+	explode(
+		split(lines.value,'')
+	).alias('word')
+)
+
+wordCounts = words.groupBy('word').count()
+query = wordCounts \ 
+	.writeStream \ 
+	.outputMode('complete') \  # 定义格式
+	.format('console') \ 	   # 定义输出模式
+	.start()
+query.awaitTermination()
+
+
+
+
+
+
+
+
+
+
+

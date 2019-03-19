@@ -1,0 +1,581 @@
+https://www.cnblogs.com/netbloomy/p/6666683.html
+
+Flume
+source：源    
+    对channel而言，相当于生产者，通过接收各种格式数据发送给channel进行传输
+channel：通道
+    相当于数据缓冲区，接收source数据发送给sink
+sink：沉槽
+    对channel而言，相当于消费者，通过接收channel数据通过指定数据类型发送到指定位置
+
+-------------------------------------------------------------------------------------------------------------
+
+案例一：netcat
+在conf文件夹下，新建netcat_source.conf文件，添加内容如下：
+# example.conf: A single-node Flume configuration
+
+# Name the components on this agent 配置agent
+a1.sources = r1
+a1.sinks = k1
+a1.channels = c1
+
+# Describe/configure the source 配置源
+a1.sources.r1.type = netcat
+a1.sources.r1.bind = localhost
+a1.sources.r1.port = 44445
+
+# Describe the sink 配置目的地
+a1.sinks.k1.type = logger 
+
+# Use a channel which buffers events in memory 配置通道
+a1.channels.c1.type = memory
+a1.channels.c1.capacity = 1000
+a1.channels.c1.transactionCapacity = 100
+
+# Bind the source and sink to the channel
+a1.sources.r1.channels = c1
+a1.sinks.k1.channel = c1
+在控制台中flume目录下使用命令启动
+flume-ng agent --conf /opt/flume/conf --conf-file /opt/flume/conf/netcat_source.conf --name a1 -Dflume.root.logger=INFO,console # 或-Dflume.root.logger=DEBUG,console
+
+#–conf:配置目录
+#–conf-file：配置文件
+#–name：代理名称
+#-Dflume：额外的参数
+使用netcat进行发送信息验证：telnet localhost 44445
+
+-------------------------------------------------------------------------------------------------------------
+
+案例二：avro
+avro可以发送一个给定的文件给flume，avro源使用avro rpc机制。
+在conf文件夹下，新建avro_source.conf文件，添加内容如下：
+# example.conf: A single-node Flume configuration
+
+# Name the components on this agent
+a1.sources = r1
+a1.sinks = k1
+a1.channels = c1
+
+# Describe/configure the source
+a1.sources.r1.type = avro
+a1.sources.r1.bind = 0.0.0.0
+a1.sources.r1.port = 44443
+
+# Describe the sink
+a1.sinks.k1.type = logger
+
+# Use a channel which buffers events in memory
+a1.channels.c1.type = memory
+a1.channels.c1.capacity = 1000
+a1.channels.c1.transactionCapacity = 100
+
+# Bind the source and sink to the channel
+a1.sources.r1.channels = c1
+a1.sinks.k1.channel = c1
+启动agent a1:
+flume-ng agent -c /opt/flume/conf/ -f /opt/flume/conf/avro_source.conf -n a1 -Dflume.root.logger=INFO,console
+在flume目录下新建log1.txt文件，并添加hello world
+使用avro-client发送文件：
+flume-ng avro-client --conf /opt/flume/conf --host 0.0.0.0 --port 44443 --filename /opt/flume/log1.txt
+
+-------------------------------------------------------------------------------------------------------------
+
+案例3：Spool
+监听一个指定的目录，即只要应用程序向这个指定的目录中添加新的文件，source组件就可以获取到该信息，并解析该文件的内容，然后写入到channle。写入完成后，标记该文件已完成或者删除该文件。
+Spool监测配置的目录下新增的文件，并将文件中的数据读取出来。需要注意两点：
+1) 拷贝到spool目录下的文件不可以再打开编辑。
+2) spool目录下不可包含相应的子目录
+
+a)创建agent配置文件
+#vi conf/spool.conf
+
+a1.sources = r1
+a1.sinks = k1
+a1.channels = c1
+
+# Describe/configure the source
+a1.sources.r1.type = spooldir
+a1.sources.r1.channels = c1
+a1.sources.r1.spoolDir = /opt/flume/logs
+a1.sources.r1.fileHeader = true
+
+# Describe the sink
+a1.sinks.k1.type = logger
+
+# Use a channel which buffers events in memory
+a1.channels.c1.type = memory
+a1.channels.c1.capacity = 1000
+a1.channels.c1.transactionCapacity = 100
+
+# Bind the source and sink to the channel
+a1.sources.r1.channels = c1
+a1.sinks.k1.channel = c1
+
+b)启动flume agent a1
+  bin/flume-ng agent -n a1 -c conf -f conf/spool.conf -Dflume.root.logger=INFO,console
+
+c)追加文件到/opt/flume/logs目录
+  echo "spool test1" > logs/spool_text.log
+
+-------------------------------------------------------------------------------------------------------------
+
+案例4：Exec
+监听一个指定的命令，获取一条命令的结果作为它的数据源 
+常用的是tail -F file指令，即只要应用程序向日志(文件)里面写数据，source组件就可以获取到日志(文件)中最新的内容 。
+EXEC执行一个给定的命令获得输出的源,如果要使用tail命令，必选使得file足够大才能看到输出内容
+
+a)创建agent配置文件
+a1.sources = r1
+a1.sinks = k1
+a1.channels = c1
+
+# Describe/configure the source
+a1.sources.r1.type = exec
+a1.sources.r1.channels = c1
+a1.sources.r1.command = tail -F /opt/flume/logs/uwsgi/supervisor_ThinManager_err.log
+
+# Describe the sink
+a1.sinks.k1.type = logger
+
+# Use a channel which buffers events in memory
+a1.channels.c1.type = memory
+a1.channels.c1.capacity = 1000
+a1.channels.c1.transactionCapacity = 100
+
+# Bind the source and sink to the channel
+a1.sources.r1.channels = c1
+a1.sinks.k1.channel = c1
+
+
+启动flume agent a1
+flume-ng agent -c /opt/flume/conf/  -f /opt/flume/conf/exec_tail.conf -n a1  -Dflume.root.logger=INFO,console
+
+-------------------------------------------------------------------------------------------------------------
+
+案例5：Syslogtcp
+Syslogtcp监听TCP的端口做为数据源 
+
+创建agent配置文件
+a1.sources = r1
+a1.sinks = k1
+a1.channels = c1
+
+# Describe/configure the source
+a1.sources.r1.type = syslogtcp
+a1.sources.r1.port = 5140
+a1.sources.r1.host = localhost
+a1.sources.r1.channels = c1
+
+# Describe the sink
+a1.sinks.k1.type = logger
+
+# Use a channel which buffers events in memory
+a1.channels.c1.type = memory
+a1.channels.c1.capacity = 1000
+a1.channels.c1.transactionCapacity = 100
+
+
+启动flume agent a1
+bin/flume-ng agent -n a1  -c conf/  -f conf/syslog_tcp.conf -Dflume.root.logger=INFO,console
+
+
+测试产生syslog
+echo "hello idoall.org syslog" | nc localhost 5140
+
+-------------------------------------------------------------------------------------------------------------
+
+案例6：JSONHandler
+创建agent配置文件
+# conf/post_json.conf
+a1.sources = r1
+a1.sinks = k1
+a1.channels = c1
+
+# Describe/configure the source
+a1.sources.r1.type = org.apache.flume.source.http.HTTPSource # 处理http格式
+a1.sources.r1.port = 8888
+a1.sources.r1.channels = c1
+
+# Describe the sink
+a1.sinks.k1.type = logger
+
+# Use a channel which buffers events in memory
+a1.channels.c1.type = memory
+a1.channels.c1.capacity = 1000
+a1.channels.c1.transactionCapacity = 100
+
+# Bind the source and sink to the channel
+a1.sources.r1.channels = c1
+a1.sinks.k1.channel = c1
+
+启动flume agent a1
+  bin/flume-ng agent -n a1 -c conf -f conf/post_json.conf -Dflume.root.logger=INFO,console
+
+生成JSON 格式的POST request
+  curl -X POST -d '[{ "headers" :{"a" : "a1","b" : "b1"},"body" : "idoall.org_body"}]' http://localhost:8888
+
+-------------------------------------------------------------------------------------------------------------
+
+案例7：Hadoop sink 将内容保存到hdfs
+创建agent配置文件
+a1.sources = r1
+a1.sinks = k1
+a1.channels = c1
+
+# Describe/configure the source
+a1.sources.r1.type = syslogtcp
+a1.sources.r1.port = 5140
+a1.sources.r1.host = localhost
+a1.sources.r1.channels = c1
+
+# Describe the sink
+a1.sinks.k1.type = hdfs
+a1.sinks.k1.channel = c1
+a1.sinks.k1.hdfs.path = hdfs:///xuan/AI/flume/syslogtcp
+a1.sinks.k1.hdfs.filePrefix = Syslog
+a1.sinks.k1.hdfs.round = true
+a1.sinks.k1.hdfs.roundValue = 10
+a1.sinks.k1.hdfs.roundUnit = minute
+
+# Use a channel which buffers events in memory
+a1.channels.c1.type = memory
+a1.channels.c1.capacity = 1000
+a1.channels.c1.transactionCapacity = 100
+
+# Bind the source and sink to the channel
+a1.sources.r1.channels = c1
+a1.sinks.k1.channel = c1
+
+启动flume agent a1
+bin/flume-ng agent -n a1 -c conf -f conf/hdfs_sink.conf -Dflume.root.logger=INFO,console
+
+-------------------------------------------------------------------------------------------------------------
+
+案例8：File Roll Sink
+#conf/file_roll.conf
+a1.sources = r1
+a1.sinks = k1
+a1.channels = c1
+
+# Describe/configure the source
+a1.sources.r1.type = syslogtcp
+a1.sources.r1.port = 5555
+a1.sources.r1.host = localhost
+a1.sources.r1.channels = c1
+
+# Describe the sink
+a1.sinks.k1.type = file_roll
+a1.sinks.k1.sink.directory = /opt/flume/logs
+
+# Use a channel which buffers events in memory
+a1.channels.c1.type = memory
+a1.channels.c1.capacity = 1000
+a1.channels.c1.transactionCapacity = 100
+
+# Bind the source and sink to the channel
+a1.sources.r1.channels = c1
+a1.sinks.k1.channel = c1
+
+# 启动agent
+bin/flume-ng agent -n a1 -c conf -f conf/file_roll.conf -Dflume.root.logger=INFO,console
+
+默认每30秒生成一个新文件
+
+-------------------------------------------------------------------------------------------------------------
+
+案例9：Replicating Channel Selector
+Flume支持Fan out流从一个源到多个通道。有两种模式的Fan out，分别是复制和复用。在复制的情况下，流的事件被发送到所有的配置通道。在复用的情况下，事件被发送到可用的渠道中的一个子集。Fan out流需要指定源和Fan out通道的规则。
+
+这次我们需要用到两台机器
+
+在第一台机器上：
+# vi replicating_Channel_Selector.conf  
+a1.sources = r1
+a1.sinks = k1 k2      # 两个目的地
+a1.channels = c1 c2   # 两个缓冲区
+
+# Describe/configure the source
+a1.sources.r1.type = syslogtcp  # 配置源
+a1.sources.r1.port = 5140
+a1.sources.r1.host = localhost
+a1.sources.r1.channels = c1 c2
+a1.sources.r1.selector.type = replicating
+
+# Describe the sink  # 配置目的地
+# 第一个目的地
+a1.sinks.k1.type = avro
+a1.sinks.k1.channel = c1
+a1.sinks.k1.hostname = master
+a1.sinks.k1.port = 5555
+# 第二个目的地
+a1.sinks.k2.type = avro
+a1.sinks.k2.channel = c2
+a1.sinks.k2.hostname = engine.thinvirt.dg
+a1.sinks.k2.port = 5555
+
+# Use a channel which buffers events in memory
+a1.channels.c1.type = memory
+a1.channels.c1.capacity = 1000
+a1.channels.c1.transactionCapacity = 100
+a1.channels.c2.type = memory
+a1.channels.c2.capacity = 1000
+a1.channels.c2.transactionCapacity = 100
+
+# vi replicating_Channel_Selector_avro.conf
+a1.sources = r1
+a1.sinks = k1
+a1.channels = c1
+
+# Describe/configure the source
+a1.sources.r1.type = avro
+a1.sources.r1.channels = c1
+a1.sources.r1.bind = 0.0.0.0
+a1.sources.r1.port = 5555
+
+# Describe the sink
+a1.sinks.k1.type = logger
+
+# Use a channel which buffers events in memory
+a1.channels.c1.type = memory
+a1.channels.c1.capacity = 1000
+a1.channels.c1.transactionCapacity = 100
+
+# Bind the source and sink to the channel
+a1.sources.r1.channels = c1
+a1.sinks.k1.channel = c1
+
+将上面两个文件复制到第二台机器 
+
+在两台机器分别打开两个窗口：
+# 先分别运行 bin/flume-ng agent -c conf/ -f conf/replicating_Channel_Selector_avro.conf  -n a1 -Dflume.root.logger=INFO,console
+# 再运行 bin/flume-ng agent -c conf/ -f conf/replicating_Channel_Selector.conf -n a1 -Dflume.root.logger=INFO,console
+
+-------------------------------------------------------------------------------------------------------------
+
+案例10：Multiplexing Channel Selector
+
+#vi Multiplexing_Channel_Selector.conf
+
+a1.sources = r1
+a1.sinks = k1 k2
+a1.channels = c1 c2
+# Describe/configure the source
+a1.sources.r1.type = org.apache.flume.source.http.HTTPSource
+a1.sources.r1.port = 5140
+a1.sources.r1.channels = c1 c2
+a1.sources.r1.selector.type = multiplexing
+a1.sources.r1.selector.header = type
+#映射允许每个值通道可以重叠。默认值可以包含任意数量的通道。
+a1.sources.r1.selector.mapping.baidu = c1
+a1.sources.r1.selector.mapping.ali = c2
+a1.sources.r1.selector.default = c1
+# Describe the sink
+a1.sinks.k1.type = avro
+a1.sinks.k1.channel = c1
+a1.sinks.k1.hostname = mbp1
+a1.sinks.k1.port = 5555
+a1.sinks.k2.type = avro
+a1.sinks.k2.channel = c2
+a1.sinks.k2.hostname = mbp2
+a1.sinks.k2.port = 5555
+# Use a channel which buffers events in memory
+a1.channels.c1.type = memory
+a1.channels.c1.capacity = 1000
+a1.channels.c1.transactionCapacity = 100
+a1.channels.c2.type = memory
+a1.channels.c2.capacity = 1000
+a1.channels.c2.transactionCapacity = 100
+
+
+将上面两个文件复制到第二台机器 
+
+在两台机器分别打开两个窗口：
+# 先分别运行 bin/flume-ng agent -c conf/ -f conf/Multiplexing_Channel_Selector_avro.conf   -n a1 -Dflume.root.logger=INFO,console
+# 再运行 bin/flume-ng agent -c conf/ -f conf/Multiplexing_Channel_Selector.conf  -n a1 -Dflume.root.logger=INFO,console
+
+测试产生syslog
+curl -X POST -d '[{ "headers" :{"type" : "baidu"},"body" : "idoall_TEST1"}]' http://localhost:5140 && curl -X POST -d '[{ "headers" :{"type" : "ali"},"body" : "idoall_TEST2"}]' http://localhost:5140 && curl -X POST -d '[{ "headers" :{"type" : "qq"},"body" : "idoall_TEST3"}]' http://localhost:5140
+
+根据header中不同的条件分布到不同的channel上,默认是输出到c1
+
+-------------------------------------------------------------------------------------------------------------
+
+案例11：Flume Sink Processors
+failover的机器是一直发送给其中一个sink，当这个sink不可用的时候，自动发送到下一个sink
+
+#vi conf/Flume_Sink_Processors.conf
+
+
+a1.sources = r1
+a1.sinks = k1 k2
+a1.channels = c1 c2
+#这个是配置failover的关键，需要有一个sink group
+a1.sinkgroups = g1
+a1.sinkgroups.g1.sinks = k1 k2
+#处理的类型是failover
+a1.sinkgroups.g1.processor.type = failover
+#优先级，数字越大优先级越高，每个sink的优先级必须不相同
+a1.sinkgroups.g1.processor.priority.k1 = 5
+a1.sinkgroups.g1.processor.priority.k2 = 10
+#设置为10秒，当然可以根据你的实际状况更改成更快或者很慢
+a1.sinkgroups.g1.processor.maxpenalty = 10000
+
+# Describe/configure the source
+a1.sources.r1.type = syslogtcp
+a1.sources.r1.port = 5140
+a1.sources.r1.channels = c1 c2
+a1.sources.r1.selector.type = replicating
+
+# Describe the sink
+a1.sinks.k1.type = avro
+a1.sinks.k1.channel = c1
+a1.sinks.k1.hostname = master
+a1.sinks.k1.port = 5555
+a1.sinks.k2.type = avro
+a1.sinks.k2.channel = c2
+a1.sinks.k2.hostname = engine.thinvirt.dg
+a1.sinks.k2.port = 5555
+
+# Use a channel which buffers events in memory
+a1.channels.c1.type = memory
+a1.channels.c1.capacity = 1000
+a1.channels.c1.transactionCapacity = 100
+a1.channels.c2.type = memory
+a1.channels.c2.capacity = 1000
+a1.channels.c2.transactionCapacity = 100
+
+
+# vi  Flume_Sink_Processors_avro.conf
+
+a1.sources = r1
+a1.sinks = k1
+a1.channels = c1
+
+# Describe/configure the source
+a1.sources.r1.type = avro
+a1.sources.r1.channels = c1
+a1.sources.r1.bind = 0.0.0.0
+a1.sources.r1.port = 5555
+
+# Describe the sink
+a1.sinks.k1.type = logger
+
+# Use a channel which buffers events in memory
+a1.channels.c1.type = memory
+a1.channels.c1.capacity = 1000
+a1.channels.c1.transactionCapacity = 100
+
+# Bind the source and sink to the channel
+a1.sources.r1.channels = c1
+a1.sinks.k1.channel = c1
+
+将上面两个文件复制到第二台机器 
+
+在两台机器分别打开两个窗口：
+# 先分别运行 bin/flume-ng agent -c conf/ -f conf/Flume_Sink_Processors_avro.conf   -n a1 -Dflume.root.logger=INFO,console
+# 再运行 bin/flume-ng agent -c conf/ -f conf/Flume_Sink_Processors.conf  -n a1 -Dflume.root.logger=INFO,console
+
+测试产生syslog
+echo "idoall.org test1 failover" | nc localhost 5140
+
+因为m2的优先级高，所以在m2的sink窗口，可以看到以下信息，而m1没有:
+INFO sink.LoggerSink: Event: { headers:{Severity=0, flume.syslog.status=Invalid, Facility=0} body: 69 64 6F 61 6C 6C 2E 6F 72 67 20 74 65 73 74 31 idoall.org test1 }
+
+这时我们停止掉m2机器上的sink(ctrl+c)，再次输出测试数据：
+echo "idoall.org test2 failover" | nc localhost 5140
+
+可以在m1的sink窗口，看到读取到了刚才发送的两条测试数据：
+INFO sink.LoggerSink: Event: { headers:{Severity=0, flume.syslog.status=Invalid, Facility=0} body: 69 64 6F 61 6C 6C 2E 6F 72 67 20 74 65 73 74 31 idoall.org test1 }
+INFO sink.LoggerSink: Event: { headers:{Severity=0, flume.syslog.status=Invalid, Facility=0} body: 69 64 6F 61 6C 6C 2E 6F 72 67 20 74 65 73 74 32 idoall.org test2 }
+
+再在m2的sink窗口中，启动sink
+输入两批测试数据:
+echo "idoall.org test3 failover" | nc localhost 5140 && echo "idoall.org test4 failover" | nc localhost 5140
+
+在m2的sink窗口，我们可以看到以下信息，因为优先级的关系，log消息会再次落到m2上：
+
+
+-------------------------------------------------------------------------------------------------------------
+
+案例12：Load balancing Sink Processor
+  load balance type和failover不同的地方是，load balance有两个配置，一个是轮询，一个是随机。两种情况下如果被选择的sink不可用，就会自动尝试发送到下一个可用的sink上面。
+
+# vi conf/load_balancing_sink_processors.conf
+
+a1.sources = r1
+a1.sinks = k1 k2
+a1.channels = c1
+
+#这个是配置Load balancing的关键，需要有一个sink group
+a1.sinkgroups = g1
+a1.sinkgroups.g1.sinks = k1 k2
+a1.sinkgroups.g1.processor.type = load_balance
+a1.sinkgroups.g1.processor.backoff = true
+a1.sinkgroups.g1.processor.selector = round_robin
+
+# Describe/configure the source
+a1.sources.r1.type = syslogtcp
+a1.sources.r1.port = 5140
+a1.sources.r1.channels = c1
+
+# Describe the sink
+a1.sinks.k1.type = avro
+a1.sinks.k1.channel = c1
+a1.sinks.k1.hostname = master
+a1.sinks.k1.port = 5555
+a1.sinks.k2.type = avro
+a1.sinks.k2.channel = c1
+a1.sinks.k2.hostname = engine.thinvirt.dg
+a1.sinks.k2.port = 5555
+
+# Use a channel which buffers events in memory
+a1.channels.c1.type = memory
+a1.channels.c1.capacity = 1000
+a1.channels.c1.transactionCapacity = 100
+
+
+# vi  conf/load_balancing_sink_processors_avro.conf
+a1.sources = r1
+a1.sinks = k1
+a1.channels = c1
+
+# Describe/configure the source
+a1.sources.r1.type = avro
+a1.sources.r1.channels = c1
+a1.sources.r1.bind = 0.0.0.0
+a1.sources.r1.port = 5555
+
+# Describe the sink
+sinks.k1.type = logger
+
+# Use a channel which buffers events in memory
+a1.channels.c1.type = memory
+a1.channels.c1.capacity = 1000
+a1.channels.c1.transactionCapacity = 100
+
+# Bind the source and sink to the channel
+a1.sources.r1.channels = c1
+a1.sinks.k1.channel = c1
+
+将上面两个文件复制到第二台机器 
+
+在两台机器分别打开两个窗口：
+# 先分别运行 bin/flume-ng agent -c conf/ -f conf/load_balancing_sink_processors_avro.conf   -n a1 -Dflume.root.logger=INFO,console
+# 再运行 bin/flume-ng agent -c conf/ -f conf/load_balancing_sink_processors.conf  -n a1 -Dflume.root.logger=INFO,console
+
+测试产生syslog
+echo "idoall.org test1" | nc localhost 5140
+echo "idoall.org test2" | nc localhost 5140
+echo "idoall.org test3" | nc localhost 5140
+echo "idoall.org test4" | nc localhost 5140
+
+
+
+-------------------------------------------------------------------------------------------------------------
+
+案例13：Hbase sink
+在测试之前，请先参考《ubuntu12.04+hadoop2.2.0+zookeeper3.4.5+hbase0.96.2+hive0.13.1分布式环境部署》将hbase启动
+
+
+
+

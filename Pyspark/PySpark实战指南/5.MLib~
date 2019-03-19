@@ -1,0 +1,286 @@
+5.2 加载和转换数据
+  MLlib着重为RDD和DStream设计的，但是为了方便转换数据，先将其转换为DataFrame
+
+  import pyspark.sql.types as typ
+
+  labels = [
+    ('INFANT_ALIVE_AT_REPORT', typ.StringType()),
+    ('BIRTH_YEAR', typ.IntegerType()),
+    ('BIRTH_MONTH', typ.IntegerType()),
+    ('BIRTH_PLACE', typ.StringType()),
+    ('MOTHER_AGE_YEARS', typ.IntegerType()),
+    ('MOTHER_RACE_6CODE', typ.StringType()),
+    ('MOTHER_EDUCATION', typ.StringType()),
+    ('FATHER_COMBINED_AGE', typ.IntegerType()),
+    ('FATHER_EDUCATION', typ.StringType()),
+    ('MONTH_PRECARE_RECODE', typ.StringType()),
+    ('CIG_BEFORE', typ.IntegerType()),
+    ('CIG_1_TRI', typ.IntegerType()),
+    ('CIG_2_TRI', typ.IntegerType()),
+    ('CIG_3_TRI', typ.IntegerType()),
+    ('MOTHER_HEIGHT_IN', typ.IntegerType()),
+    ('MOTHER_BMI_RECODE', typ.IntegerType()),
+    ('MOTHER_PRE_WEIGHT', typ.IntegerType()),
+    ('MOTHER_DELIVERY_WEIGHT', typ.IntegerType()),
+    ('MOTHER_WEIGHT_GAIN', typ.IntegerType()),
+    ('DIABETES_PRE', typ.StringType()),
+    ('DIABETES_GEST', typ.StringType()),
+    ('HYP_TENS_PRE', typ.StringType()),
+    ('HYP_TENS_GEST', typ.StringType()),
+    ('PREV_BIRTH_PRETERM', typ.StringType()),
+    ('NO_RISK', typ.StringType()),
+    ('NO_INFECTIONS_REPORTED', typ.StringType()),
+    ('LABOR_IND', typ.StringType()),
+    ('LABOR_AUGM', typ.StringType()),
+    ('STEROIDS', typ.StringType()),
+    ('ANTIBIOTICS', typ.StringType()),
+    ('ANESTHESIA', typ.StringType()),
+    ('DELIV_METHOD_RECODE_COMB', typ.StringType()),
+    ('ATTENDANT_BIRTH', typ.StringType()),
+    ('APGAR_5', typ.IntegerType()),
+    ('APGAR_5_RECODE', typ.StringType()),
+    ('APGAR_10', typ.IntegerType()),
+    ('APGAR_10_RECODE', typ.StringType()),
+    ('INFANT_SEX', typ.StringType()),
+    ('OBSTETRIC_GESTATION_WEEKS', typ.IntegerType()),
+    ('INFANT_WEIGHT_GRAMS', typ.IntegerType()),
+    ('INFANT_ASSIST_VENTI', typ.StringType()),
+    ('INFANT_ASSIST_VENTI_6HRS', typ.StringType()),
+    ('INFANT_NICU_ADMISSION', typ.StringType()),
+    ('INFANT_SURFACANT', typ.StringType()),
+    ('INFANT_ANTIBIOTICS', typ.StringType()),
+    ('INFANT_SEIZURES', typ.StringType()),
+    ('INFANT_NO_ABNORMALITIES', typ.StringType()),
+    ('INFANT_ANCEPHALY', typ.StringType()),
+    ('INFANT_MENINGOMYELOCELE', typ.StringType()),
+    ('INFANT_LIMB_REDUCTION', typ.StringType()),
+    ('INFANT_DOWN_SYNDROME', typ.StringType()),
+    ('INFANT_SUSPECTED_CHROMOSOMAL_DISORDER', typ.StringType()),
+    ('INFANT_NO_CONGENITAL_ANOMALIES_CHECKED', typ.StringType()),
+    ('INFANT_BREASTFED', typ.StringType())
+  ]
+
+  schema = typ.StructType([
+        typ.StructField(e[0], e[1], False) for e in labels
+  ])
+
+  births = spark.read.csv('births_train.csv.gz', 
+                        header=True, 
+                        schema=schema)
+
+  # 定义重编码字典
+  recode_dictionary = {
+    'YNU': {
+        'Y': 1,
+        'N': 0,
+        'U': 0
+    }
+  }
+
+  # 丢弃与婴儿相关的所有特征
+  selected_features = [
+    'INFANT_ALIVE_AT_REPORT', 
+    'BIRTH_PLACE', 
+    'MOTHER_AGE_YEARS', 
+    'FATHER_COMBINED_AGE', 
+    'CIG_BEFORE', 
+    'CIG_1_TRI', 
+    'CIG_2_TRI', 
+    'CIG_3_TRI', 
+    'MOTHER_HEIGHT_IN', 
+    'MOTHER_PRE_WEIGHT', 
+    'MOTHER_DELIVERY_WEIGHT', 
+    'MOTHER_WEIGHT_GAIN', 
+    'DIABETES_PRE', 
+    'DIABETES_GEST', 
+    'HYP_TENS_PRE', 
+    'HYP_TENS_GEST', 
+    'PREV_BIRTH_PRETERM'
+  ]
+
+  births_trimmed = births.select(selected_features)  
+ 
+  # 将Yes编码为1,其它设置为0
+  import pyspark.sql.functions as func
+  """
+    recode方法从recode_dictionary查找正确的键，并返回更正的值
+  """
+  
+  def recode(col, key):        
+    return recode_dictionary[key][col] 
+ 
+  # 对母亲吸烟数量编码
+  def correct_cig(feat):
+    # 当数量等于99时编码为0
+    return func \
+        .when(func.col(feat) != 99, func.col(feat)).otherwise(0)
+
+
+  # 对Yes/No/Unknown编码
+  # 不能直接在DataFrame上使用recode函数，它需要转换为Spark可理解的UDF
+  # udf(指定执行的函数,返回值的类型)
+  rec_integer = func.udf(recode, typ.IntegerType())
+
+  # 更正与吸烟数量相关的特征：
+  births_transformed = births_trimmed \
+    .withColumn('CIG_BEFORE', correct_cig('CIG_BEFORE'))\
+    .withColumn('CIG_1_TRI', correct_cig('CIG_1_TRI'))\
+    .withColumn('CIG_2_TRI', correct_cig('CIG_2_TRI'))\
+    .withColumn('CIG_3_TRI', correct_cig('CIG_3_TRI'))
+
+  # 更正  Yes/No/Unknown特征
+  cols = [(col.name, col.dataType) for col in births_trimmed.schema]
+  YNU_cols = []
+  for i, s in enumerate(cols):
+      if s[1] == typ.StringType():
+ 	  # 转换成RDD，取出所有值
+          dis = births.select(s[0]) \
+              .distinct() \
+              .rdd \
+              .map(lambda row: row[0]) \
+              .collect()
+
+          if 'Y' in dis:
+  	      # 保存包含Y的特征名
+              YNU_cols.append(s[0])
+
+  # rec_integer(）选择了特征INFANT_NICU_ADMISSION进行转换并重命令为INFANT_NICU_ADMISSION_RECODE
+  # rec_integer: func.udf() 用户算定义函数，在select()中调用
+  births.select([
+        'INFANT_NICU_ADMISSION', 
+        rec_integer(
+            #     col                     key
+            'INFANT_NICU_ADMISSION', func.lit('YNU')
+        ).alias('INFANT_NICU_ADMISSION_RECODE')]
+  ).take(5)
+
+    
+  # 一次性转换所有的YNU_cols
+  exprs_YNU = [
+      rec_integer(x, func.lit('YNU')).aliax(x)
+      if x in YNU_cols
+      else x
+      for x in births_transformed.columns
+  ]
+  # 将exprs_YNU传入到到.select()
+  births_transformed = births_transformed.select(exprs_YNU)
+
+
+5.3 描述性统计 
+  .coutn()
+  .max()
+  .mean()
+  .min()
+  .normL1()
+  .normL2()
+  .numNonzeros()
+  .variance()
+
+import pyspark.mllib.stat as st
+import numpy as np
+
+numeric_cols = ['MOTHER_AGE_YEARS','FATHER_COMBINED_AGE',
+                'CIG_BEFORE','CIG_1_TRI','CIG_2_TRI','CIG_3_TRI',
+                'MOTHER_HEIGHT_IN','MOTHER_PRE_WEIGHT',
+                'MOTHER_DELIVERY_WEIGHT','MOTHER_WEIGHT_GAIN'
+               ]
+
+numeric_rdd = births_transformed\
+                       .select(numeric_cols)\
+                       .rdd \
+                       .map(lambda row: [e for e in row])
+#print 'numeric_rdd', numeric_rdd.collect()
+            
+            
+mllib_stats = st.Statistics.colStats(numeric_rdd)
+
+for col, m, v in zip(numeric_cols, mllib_stats.mean(), mllib_stats.variance()):
+    print('{0}: \t{1:.2f} \t {2:.2f}'.format(col, m, np.sqrt(v)))
+  
+
+# 对于分类变量，计算其值的频率：
+categorical_cols = [
+    e for e in births_transformed.columns if e not in numeric_cols
+]
+
+categorical_rdd = births_transformed.select(categorical_cols).rdd.map(lambda row: [e for e in row])
+
+# .groupBy: groupBy算子接收一个函数，这个函数返回的值作为key，然后通过这个key来对里面的元素进行分组
+for i, col in enumerate(categorical_cols):
+    # 注意: .map()里的row是经过.group()处理之后的数据 
+    agg = categorical_rdd.groupBy(lambda row: row[i]).map(lambda row: (row[0], len(row[1])))
+
+    print(col,sorted(agg.collect(),key=lambda e1: e1[1],reverse=True))
+
+
+5.3.2 相关性
+
+corrs = st.Statistics.corr(numeric_rdd)
+
+for i, e1 in enumerate(corrs > 0.5):
+    print i,e1  # 0 [ True False False False False False False False False False]
+    for j, e in enumerate(e1):
+        if e == 1.0:
+            print 'j,e',j,e
+
+for i, e1 in enumerate(corrs > 0.5):
+    correlated = [
+        (numeric_cols[j],corrs[i][j])
+	for j,e in enumerate(e1)
+	if e == 1.0 and j != i # 相当于一个对称矩阵,
+    ]
+
+    if len(correlated) > 0:
+        for e in correlated:
+            print('{0}-to-{1}: {2:.2f}'.format(numeric_cols[i], e[0], e[1]))
+
+# 去除高度相关的特征
+# 只保留：
+features_to_keep = [
+    'INFANT_ALIVE_AT_REPORT', 
+    'BIRTH_PLACE', 
+    'MOTHER_AGE_YEARS', 
+    'FATHER_COMBINED_AGE', 
+    'CIG_1_TRI', 
+    'MOTHER_HEIGHT_IN', 
+    'MOTHER_PRE_WEIGHT', 
+    'DIABETES_PRE', 
+    'DIABETES_GEST', 
+    'HYP_TENS_PRE', 
+    'HYP_TENS_GEST', 
+    'PREV_BIRTH_PRETERM'
+]
+births_transformed = births_transformed.select([e for e in features_to_keep])
+#births_transformed.show(5)
+
+5.3.3 统计测试
+无法计算分类特征的相关性，然而，我们可以进行卡方检验来确定是否存在显著差异
+MMlib的.chiSqTest()方法
+
+import pyspark.mlib.linalg as ln
+
+for cat in categorical_cols[1:]:
+    agg = births_transformed \
+        .groupby('INFANT_ALIVE_AT_REPORT') \
+	.pivot(cta) \ 
+	.count()
+    agg_rdd = agg \ 
+	.rdd\
+	.map(lambda row: (row[1:])) \ 
+	.flatMap(lambda row:
+	 	  [0 if e == None else e for e in row]	
+	)
+    row_length = len(agg.collect()[0]) - 1
+    agg = ln.Matrices.dense(row_length,2,agg_rdd)
+    test = st.Statistics.chiSqTest(agg)
+    print(cat,round(test.pValue,4))
+
+
+5.4 创建最终数据集
+要把DataFrame转换为LabeldPoint的RDD
+LabeledPoint是一种MLib的数据结构,用于训练机器学习模型。它由两个属性组成：标签和特征
+
+5.4.1 创建LabeledPoint形式的RDD
+
+
+

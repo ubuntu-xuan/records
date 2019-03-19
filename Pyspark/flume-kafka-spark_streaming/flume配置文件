@@ -1,0 +1,23 @@
+agent.sources = s1
+agent.sinks = k1
+agent.channels = c1
+
+# 配置源
+agent.sources.s1.type=exec
+agent.sources.s1.command=tail -F /home/xuan/mystudy/pyspark/streaming/kafka/abc.log
+agent.sources.s1.channels=c1
+#通道
+agent.channels.c1.type=memory
+agent.channels.c1.capacity=10000
+agent.channels.c1.transactionCapacity=100
+#目的地
+agent.sinks.k1.type= org.apache.flume.sink.kafka.KafkaSink
+agent.sinks.k1.brokerList=192.168.0.2:9092,192.168.0.3:9092,192.168.0.4:9092
+agent.sinks.k1.topic=business
+agent.sinks.k1.serializer.class=kafka.serializer.StringEncoder
+agent.sinks.k1.channel=c1
+
+命令：
+  /opt/flume/bin/flume-ng agent --conf /opt/flume/conf --conf-file /opt/flume/conf/flume2kafka.conf --name agent -Dflume.root.logger=INFO,console
+
+

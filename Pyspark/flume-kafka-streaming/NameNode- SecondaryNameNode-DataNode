@@ -1,0 +1,7 @@
+NameNode-SecondaryNameNode-DataNode
+
+NameNode相当于管理员，SecondaryNameNode相当于副管理员，协助NameNode管理所有的DataNode
+
+spark-submit --master spark://172.16.128.250:7077 --jars /home/xuan/AI/spark-seaming-kafka-0-8-assembly_2.11-2.1.1.jar /home/xuan/AI/PySpark/kafka-streaming/consumer.py
+
+用spark-submit提交任务到集群时，是在DataNode上进行操作，例如写入数据到数据库，是在所有的DataNode上进行操作而不是在NameNode上。

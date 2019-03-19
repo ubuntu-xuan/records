@@ -1,0 +1,1 @@
+./spark-submit --master spark://master:7077  --conf "spark.driver.extraJavaOptions=-Dlog4j.configuration=file:../conf/log4j.properties" /home/xuan/mystudy/pyspark/streaming/kafka_wordcount.py

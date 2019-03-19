@@ -1,0 +1,736 @@
+Find full example code at "examples/src/main/python/ml/
+
+6.1.1 转换器 spark.ml.feature
+  转换器类,通常通过一个新列附加到DataFrame来转换数据。
+  .Binarizer: 根据指定的阈值将连续变量转换为对应的二进制值。
+  .Bucketizer: 与Binarizer类似,该方法根据阈值列表(分割的参数),将连续变量转换为多项值（即将连续变量离散化到指定的范围区间）
+  .ChiSqSelector: 卡方检验
+  .CountVectorizer: 
+  .DCT:
+  .ElementwiseProduct: 
+  .IDF:
+  .IndexToString: 与StringIndexer方法对应。它使用StringIndexerModel对象中的编码将字符串索引反转到原始值,如果有时不起作用,需要指定StringIndexer中的值。
+  .MaxAbsScaler: 将数据调整到[-1.0,1.0]范围内。
+  .MinMaxScaler: 将数据缩放到[0.0,1.0]范围内。
+  .NGram: 输入为标记文本的列表,返回结果包含一系列n-gram
+  .Normalizer: 使用p范数将数据缩放为单位范数(默认为L2)
+  .OneHotEncoder: 将分类列编码为二进制向量列
+  .PCA:
+  .PolynomialExpansion: 执行向量的多项式展开,假如有一个[x,y,z]的向量,会产生:
+                 [x,x*x,y,x*y,y*y,z,x*z,y*z,z*z]
+  .QuantileDiscretizer:
+  .RegexTokenizer: 正则表达式字符串分词器
+  .RFormula:
+  .SQLTransformer:
+  .StandardScaler: 标准化列,使其拥有零均值和等于1的标准差。
+  .StopWordsRemover: 删除标记文本中的停用词
+  .StringIndexer: 假设包含所有单词的列表都在一列,会产生一个索引向量。
+  .Tokenizer(分词器): 默认分词器将字符串转成小写,然后以空格为分割符分词。
+  .VectorAssembler: 将多个数字(包括向量)列合并为一列向量
+  .VectorIndexer: 为类别列生成索引向量
+  .VectorSlicer: 作用于特征向量,给定一个索引列表,它从特征向量中提取值。
+  .Word2Vec: 将一个句子(字符串)作为输入,并将其转换为{string,vector}格式的映射,在自然语言处理中非常有用。
+
+6.1.2 评估器
+  分类
+  .LogisticRegression：逻辑回归
+  .DecisionTreeClassifier：决策树
+  .GBTClassifier：GBDT
+  .RandomForestClassifier：随机森林
+  .NaiveBayes：贝叶斯
+  .MultilayerPerceptronClassifier：多层感知机
+  .OneVsRest：将多分类问题简化为二分类问题
+
+  回归
+  .AFTSurvivalRegression：适合加速失效时间回归模型
+  .DecisionTreeRegressor：标签是连续而不是二元的
+  .GBTRegressor：标签是连续而不是二元的
+  .GeneralizedLinearRegression：广义线性回归
+  .IsotonicRegression
+  .LinearRegression：线性回归
+  .RandomForestRegressor：标签是连续而不是二元的
+
+  聚类
+  .BisectionKMeans: 二分K均值算法
+  .KMeans: K均值算法
+  .GaussianMixture
+  .LDA：用于自然语言处理应用程序中的主题生成
+
+6.1.3 管道
+  用来表示从转换到评估的端到端的过程,这个过程可以对输入的一些原始数据(以DataFrame形式)执行必要的数据加工,最后评估统计模型。只由数个转换器组成。
+  在Pineline对象上执行.fit()方法时,所有阶段按照stages参数中指定的顺序执行,stages参数是转换器和评估器对象的列表。管道对象的.fit()方法执行每个转换器的.transform()方法和所有评估器的.fit()方法。
+  通常,前一阶段的输出会成为下一阶段的输入;当从转换器或评估器抽象类派生时,需要实现.getOutputCol()方法,该方法返回创建对象时指定的outputCol参数的值。
+
+6.2 使用ML预测婴儿生存几率
+6.2.1 加载数据
+
+import pyspark.sql.types as typ
+
+labels = [
+    ('INFANT_ALIVE_AT_REPORT', typ.IntegerType()),
+    ('BIRTH_PLACE', typ.StringType()),
+    ('MOTHER_AGE_YEARS', typ.IntegerType()),
+    ('FATHER_COMBINED_AGE', typ.IntegerType()),
+    ('CIG_BEFORE', typ.IntegerType()),
+    ('CIG_1_TRI', typ.IntegerType()),
+    ('CIG_2_TRI', typ.IntegerType()),
+    ('CIG_3_TRI', typ.IntegerType()),
+    ('MOTHER_HEIGHT_IN', typ.IntegerType()),
+    ('MOTHER_PRE_WEIGHT', typ.IntegerType()),
+    ('MOTHER_DELIVERY_WEIGHT', typ.IntegerType()),
+    ('MOTHER_WEIGHT_GAIN', typ.IntegerType()),
+    ('DIABETES_PRE', typ.IntegerType()),
+    ('DIABETES_GEST', typ.IntegerType()),
+    ('HYP_TENS_PRE', typ.IntegerType()),
+    ('HYP_TENS_GEST', typ.IntegerType()),
+    ('PREV_BIRTH_PRETERM', typ.IntegerType())
+]
+
+schema = typ.StructType([
+    typ.StructField(e[0], e[1], False) for e in labels
+])
+# 指定DataFrame的schema
+births = spark.read.csv('hdfs:///xuan/AI/spark/births_transformed.csv.gz', 
+                        header=True, 
+                        schema=schema)
+
+
+6.2.2 创建转换器
+  # 由于统计模型只能对数值数据做操作,因此必须对BIRTH_PLACE变量进行编码。
+  import pyspark.ml.feature as ft
+
+  # 使用OneHotEncoder来对BIRTH_PLACE列进行编码,该方法只能处理数字类型,所以首先将该列转换为   IntegerType:
+  # function: .withColumn() 添加列
+  births = births \
+     .withColumn('BIRTH_PLACE_INT',births['BIRTH_PLACE'].cast(typ.IntegerType()))
+
+  # 创建第一个转换器
+  # function: ft.OneHotEncoder()
+  encoder = ft.OneHotEncoder(
+      inputCol='BIRTH_PLACE_INT',
+      outputCol='BIRTH_PLACE_VEC')
+ 
+  Notes:
+    关于spark的OneHotEncoder:
+    1.转换成稀疏矩阵
+    2. python scikit-learn's OneHotEncoder不同，scikit-learn's OneHotEncoder包含所有,spark的OneHotEncoder会把最后的一类转换成类似：(3,[],[]），若要保留，在OneHotEncoder()传入dropLast=False
+
+
+  # 创建一个单一的列,将所有特征整合在一起
+  featuresCreator = ft.VectorAssembler(
+    inputCols=[
+        col[0] for col in labels[2:]] + \
+        [encoder.getOutputCol()
+    ], 
+    outputCol='features'
+  )
+
+6.2.3 创建一个评估器
+  import pyspark.ml.classification as cl
+  
+  # 目标列的名称为"label",则不必指定labelCol参数
+  # 另外
+  logistic = cl.LogisticRegression(
+    maxIter=10, 
+    regParam=0.01, 
+    labelCol='INFANT_ALIVE_AT_REPORT')
+  
+6.2.4 创建一个管道
+  from pyspark.ml import Pipeline
+
+  # encoder --> featuresCreator --> logistic
+  pipeline = Pipeline(stages=[
+        encoder, 
+        featuresCreator, 
+        logistic
+  ])
+
+6.2.5 拟合模型
+  # 分成训练集和测试集
+  births_train, births_test = births.randomSplit([0.7,0.3], seed=666)
+  # 或分为多个子集
+  train, test, val = births.randomSplit([0.7,0.2,0.1], seed=666)
+
+  # 运行管道并评估模型
+  model = pipeline.fit(births_train) # 传入训练集
+  test_model = model.transform(births_test) # 传入测试集
+  test_model.take(1)
+
+  管道对象的.fit()方法以训练数据为输入。在方法内部，births_train数据集首先被传给encoder对象。在encoder阶段创建的DataFrame将被传递给创建"features"列的featuresCreator。最后，此阶段的输出被传递给评估最终模型的logistic对象。
+
+  # 逻辑回归模型输出了几列：
+  rawPrediction: 特征和beta系数的线性组合的值
+  probability: 每个类别计算出的概率
+  prediction: 最终的类分配
+
+
+6.2.6 评估模型的性能
+import pyspark.ml.evaluation as ev 
+
+# 使用BinaryClassficationEvaluator来检验模型表现
+evaluator = ev.BinaryClassficationEvaluator(
+    rawPredictionCol='probability',
+    labelCol='INFANT_ALIVE_AT_REPORT'
+)
+rawPredictionCol可以是评估器产生的rawPrediction列，也可以是probability
+
+# ROC曲线
+print(evaluator.evaluate(test_model,{evaluator.metricName: 'areaUnderROC'}))
+
+print(evaluator.evaluate(test_model,{evaluator.metricName: 'areaUnderPR'}))
+
+
+Notes:
+分类性能度量指标：正确率、召回率、ROC曲线
+
+混淆矩阵：
+
+	  	                           真实结果 
+                                +1                          -1     	 
+	    预测结果  +1      真阳例  TP                 假阳例  FP       
+ 
+		     -1      假阴例  FN                  真阴例  TN
+
+TP(True Positive): T指预测结果与真实结果相同，P指预测结果为正例
+TN(True Negative)：T指预测结果与真实结果相同，N指预测结果为负例
+FP(False Positive)：F指预测结果与真实结果不相同，P指预测结果为正例
+FN(False Negative)：F指预测结果与真实结果不相同，P指预测结果为负例
+
+正确率：
+  accuracy = (TP + TN) / (TP + TN + FP + FN): 被分对的样本数除以所有的样本数
+错误率：
+  error rate = (FP + FN) / (TP + TN + FP + FN)  = 1 - accuracy 
+
+***************************************************************************************************************
+对真实结果来说：
+  召回率：
+    Recall = TP / (TP + FN) :  召回率是覆盖面的度量，度量有多个真实结果为正例的样本被正确预测为正例（真实结果与预测结果都为正例的数目 / 真实结果为正例）
+  灵敏度（真阳类率）（sensitive）  相当于 召回率：
+　　  TPR = TP/ （TP + FN )，又称为真正类率(truepositive rate ,TPR) 表示分类器所识别出的正实例占所有正实例（在真实结果中）的比例，衡量了分类器对正例的识别能力
+负正（假阳）类率(false positive rate, FPR)（1 - 特异性（真阳类率））：
+  FPR=FP/(FP+TN).负正类率计算的是分类器错分为正类的负实例占所有负实例(在真实结果中)的比例
+特异性（真阴类率）:
+  Specificity=TN/(FP+TN)=1-FPR。特异性指标又称为真负类率（True Negative Rate，TNR）， 表示分类器所识别出的负实例占所有负实例的比例，衡量了分类器对负例的识别能力
+***************************************************************************************************************
+# 对预测结果来说：
+精度（准确率）：
+  Precision = TP/（TP + FP）：精度是精确性的度量，表示在所有被预测为正例的示例中真实结果为正例的比例（真实结果与预测结果都为正例的数目 / 预测结果中所有正例）
+
+ps:Accuracy是对分类器整体上的正确率的评价，而Precision是分类器预测为某一个类别的正确率的评价。
+***************************************************************************************************************
+
+
+ROC曲线：
+  以假阳率FPR为x轴，真阳率TPR为y轴
+  给出的是当阈值变化时，假阳率和真阳率的变化情况。
+AUC：曲线下方围成的面积
+
+
+
+6.2.7 保存模型
+1.保存管道结构：
+pipelinePath = './infant_oneHotEncoder_Logistic_Pipeline'
+pipeline.write().overwrtite().save(pipelinePath)
+
+加载并直接使用.fit()并预测：
+loadedPipeline = Pipeline.load(pipelinePath)
+loadedPipeline.fit(births_train) \
+	      .transform(births_test) \ 
+	      .take(1)
+
+所有评估器或转换器上调用.fit()方法返回的模型都可以保存，可以加载重用
+
+2.保存评估的模型：
+from pyspark.ml import PipelineModel
+
+modelPath = './infant_oneHotEncoder_Logistic_PipelineModel'
+model.write().save(modelPath)
+
+loadedPipelineModel = PipelineModel.load(modelPath)
+test_reloadedModel = loadedPipelineModel.transform(births_test)
+	      
+
+6.3 超参调优
+6.3.1 网格搜索法
+grid search和train-validation splitting
+
+import pyspark.ml.tuning as tune
+# 指定模型
+logistic = cl.LogisticRegression(
+    labelCol='INFANT_ALIVE_AT_REPORT')
+# 要循环的参数列表
+gird = tune.ParamGridBuilder() \ 
+        .addGrid(logistic.maxIter,[2,10,50]) \ 
+	.addGrid(logistic.regParam,[0.01,0.05,0.3])
+	.build()
+# 比较模型的方法  使用BinaryClassficationEvaluator来检验模型表现
+evaluator = ev.BinaryClassficationEvaluator(
+    rawPredictionCol='probability',
+    labelCol='INFANT_ALIVE_AT_REPORT'
+)
+
+# 创建验证逻辑
+cv = tune.CrossValidator(
+    estimator=logistic, # 指定模型（评估器）
+    estimatorParamMaps=grid, # 循环的参数列表
+    evaluator=evaluator # 
+)
+
+# 不能直接使用数据（因为births_tarin和births_test中的BIRTHS_PLACE列未编码）
+  创建一个只用于转换的管道
+pipeline = Pipeline(stages=[encoder,featuresCreator])
+data_transformer = pipeline.fit(births_train) #传入训练集
+
+cvModel = cv.fit(data_transformer.transform(births_train))
+cvModel将返回估计的最佳模型。
+
+# 对测试集进行encoder,featuresCreator
+data_train = data_transformer.transform(births_test)
+
+results = cvModel.transform(data_train)
+
+print(evaluator.evaluate(results,{evalutor.metricName: 'areaUnderROC'}))
+print(evaluator.evaluate(results,{evalutor.metricName: 'areaUnderPR'}))
+
+
+提取最佳模型的参数：
+result = [
+    (
+      [
+	{key.name: paramValue}
+	for key,paramValue
+	in zip(
+	    params.keys(),
+	    params,values()
+	)
+      ], metric
+    )
+    # 
+    for params, metric
+    in zip(
+	cvModel.getEstimatorParamMaps(),
+	cvModel.avgMetrics
+    )
+]
+
+sorted(results,key=lambda el: el[1],reverse=True)[0] #倒序取第一个
+
+
+----------------------------------------------------------------------------------------------------------------------------------------
+https://www.cnblogs.com/sddai/p/5696834.html
+交叉验证(CrossValidation)方法思想简介
+  以下简称交叉验证(Cross Validation)为CV.CV是用来验证分类器的性能一种统计分析方法,基本思想是把在某种意义下将原始数据(dataset)进行分组,一部分做为训练集(train set),另一部分做为验证集(validation set),首先用训练集对分类器进行训练,在利用验证集来测试训练得到的模型(model),以此来做为评价分类器的性能指标.常见CV的方法如下:
+1).Hold-Out Method
+  将原始数据随机分为两组,一组做为训练集,一组做为验证集,利用训练集训练分类器,然后利用验证集验证模型,记录最后的分类准确率为此Hold-OutMethod下分类器的性能指标.此种方法的好处的处理简单,只需随机把原始数据分为两组即可,其实严格意义来说Hold-Out Method并不能算是CV,因为这种方法没有达到交叉的思想,由于是随机的将原始数据分组,所以最后验证集分类准确率的高低与原始数据的分组有很大的关系,所以这种方法得到的结果其实并不具有说服性.
+2).K-fold Cross Validation(记为K-CV)
+  将原始数据分成K组(一般是均分),将每个子集数据分别做一次验证集,其余的K-1组子集数据作为训练集,这样会得到K个模型,用这K个模型最终的验证集的分类准确率的平均数作为此K-CV下分类器的性能指标.K一般大于等于2,实际操作时一般从3开始取,只有在原始数据集合数据量小的时候才会尝试取2.K-CV可以有效的避免过学习以及欠学习状态的发生,最后得到的结果也比较具有说服性.
+
+ps:
+  在pyspark中的CrossValidator方法用的应该就是K-fold Cross Validation，若K=3,会生成三个模型。
+  gird = tune.ParamGridBuilder() \ 
+        .addGrid(logistic.maxIter,[2,10,50]) \ 
+	.addGrid(logistic.regParam,[0.01,0.05,0.3])
+	.build()
+  这会产生3x3个参数组合，就是说一共会验证3x3x3=27次，最后用这K个模型最终的验证集的分类准确率的平均数作为此K-CV下分类器的性能指标
+
+3).Leave-One-Out Cross Validation(记为LOO-CV)
+  如果设原始数据有N个样本,那么LOO-CV就是N-CV,即每个样本单独作为验证集,其余的N-1个样本作为训练集,所以LOO-CV会得到N个模型,用这N个模型最终的验证集的分类准确率的平均数作为此下LOO-CV分类器的性能指标.相比于前面的K-CV,LOO-CV有两个明显的优点:
+①a.每一回合中几乎所有的样本皆用于训练模型,因此最接近原始样本的分布,这样评估所得的结果比较可靠。
+②b.实验过程中没有随机因素会影响实验数据,确保实验过程是可以被复制的。
+  但LOO-CV的缺点则是计算成本高,因为需要建立的模型数量与原始数据样本数量相同,当原始数据样本数量相当多时,LOO-CV在实作上便有困难几乎就是不显示,除非每次训练分类器得到模型的速度很快,或是可以用并行化计算减少计算所需的时间. 
+
+6.3.2 Train-avlidation划分
+为了选择最佳模型，TrainValidationSplit模型对输入的数据集执行随机划分
+划分为两个子集：较小的训练集和验证集。划分仅执行一次
+
+使用ChiSqSelector只选出前五个显著差异特征，来限制模型的复杂度
+selector = ft.ChiSqSelector(
+    numTopFeatures=5, 
+    featuresCol=featuresCreator.getOutputCol(), 
+    outputCol='selectedFeatures',
+    labelCol='INFANT_ALIVE_AT_REPORT'
+)
+logistic = cl.LogisticRegression(
+    labelCol='INFANT_ALIVE_AT_REPORT',
+    featuresCol='selectedFeatures'
+)
+pipeline = Pipeline(stages=[encoder,featuresCreator,selector])
+data_transformer = pipeline.fit(births_train)
+
+
+# TrainValidationSplit对象的创建方式与CrossValidator模型相同
+notes:
+  TrainValidationSplit只评估每个参数组合一次，而CrossValidator的情况是k次。因此，它开销更小，但是在训练数据集不够大时不会产生可靠的结果。
+  与CrossValidator不同，TrainValidationSplit创建了一个（训练、测试）数据集对。它使用RealRead参数将数据集拆分为这两个部分。例如，乘速比＝0.75
+  TrainValidationSplit将生成一个训练和测试数据集对，其中75%的数据用于训练，25%的数据用于验证。
+  像CrossValidator一样，TrainValidationSplit最终使用最好的ParamMap和整个数据集来拟合Estimator。
+
+tvs = tune.TrainValidationSplit(
+    estimator=logistic, 
+    estimatorParamMaps=grid, 
+    evaluator=evaluator
+)
+tvsModel = tvs.fit(
+    data_transformer \
+        .transform(births_train)
+)
+data_train = data_transformer \
+    .transform(births_test)
+
+results = tvsModel.transform(data_train)
+
+print(evaluator.evaluate(results, 
+     {evaluator.metricName: 'areaUnderROC'}))
+print(evaluator.evaluate(results, 
+     {evaluator.metricName: 'areaUnderPR'}))
+
+
+
+6.4 使用PySpark ML的其它功能
+6.4.1 特征提取
+  NLP相关特征提取
+  NGram模型采用标记文本的列表，并生成单词对（n-gram）
+  
+text_data = spark.createDataFrame([
+    ['''Machine learning can be applied to a wide variety 
+        of data types, such as vectors, text, images, and 
+        structured data. This API adopts the DataFrame from 
+        Spark SQL in order to support a variety of data types.'''],
+    ['''DataFrame supports many basic and structured types; 
+        see the Spark SQL datatype reference for a list of 
+        supported types. In addition to the types listed in 
+        the Spark SQL guide, DataFrame can use ML Vector types.'''],
+    ['''A DataFrame can be created either implicitly or 
+        explicitly from a regular RDD. See the code examples 
+        below and the Spark SQL programming guide for examples.'''],
+    ['''Columns in a DataFrame are named. The code examples 
+        below use names such as "text," "features," and "label."''']
+], ['input'])
+
+tokenizer = ft.RegexTokenizer(
+    inputCol='input', 
+    outputCol='input_arr', 
+    pattern='\s+|[,.\"]')
+
+tok = tokenizer \
+    .transform(text_data) \
+    .select('input_arr') 
+
+#tok.take(1)
+
+# 停用词
+stopwords = ft.StopWordsRemover(
+    inputCol=tokenizer.getOutputCol(), 
+    outputCol='input_stop')
+
+#stopwords.transform(tok).select('input_stop').take(1)
+
+ngram = ft.NGram(n=2, 
+    inputCol=stopwords.getOutputCol(), 
+    outputCol="nGrams")
+
+pipeline = Pipeline(stages=[tokenizer, stopwords, ngram])
+
+data_ngram = pipeline \
+    .fit(text_data) \
+    .transform(text_data)
+    
+data_ngram.select('nGrams').take(1)
+
+离散连续变量
+# 构造数据
+import numpy as np
+
+x = np.arange(0, 100)
+x = x / 100.0 * np.pi * 4
+y = x * np.sin(x / 1.764) + 20.1234
+
+schema = typ.StructType([
+    typ.StructField('continuous_var', 
+                    typ.DoubleType(), 
+                    False
+   )
+])
+
+data = spark.createDataFrame([[float(e), ] for e in y], schema=schema)
+
+# 将连续变量分为五个分级类别
+discretizer = ft.QuantileDiscretizer(
+    numBuckets=5, 
+    inputCol='continuous_var', 
+    outputCol='discretized')
+
+data_discretized = discretizer.fit(data).transform(data)
+现在可以将此变量视为分类，并使用OneHotEncoder对其进行编码
+
+
+标准化连续变量 
+# 创建一个向量代表连续变量（因为它只是一个float）
+
+vectorizer = ft.VectorAssembler(
+    inputCols = ['continuous_var'],
+    outputCols = 'continuous_vec')
+
+# 将withMean和withStd设置为True，改方法将删除均值并让方差缩放为单位长度
+normalizer = ft.StandardScaler(
+    inputCol=vectorizer.getOutputCol(),
+    outputCol='normalized',
+    withMean=True,
+    withStd=True
+)
+
+pipeline = Pipeline(stages=[vectorizer,normalizer])
+data_standardized = pipeline.fit(data).transform(data)
+
+
+6.4.2 分类
+
+# RandomForestClassfier 随机森林
+
+#将label特征转化为DoubleType
+import pyspark.sql.functions as func
+#withColumn 添加列
+births = births.withColumn(
+	'INFANT_ALIVE_AT_REPORT',
+    func.col('INFANT_ALIVE_AT_REPORT').cast(typ.DoubleType()) # 转换成doulbe类型
+births_train,births_test = births.randomSplit([0.7,0.3],seed=666)
+
+classifier = cl.RandomForestClassifier(
+    numTrees=5,
+    maxDepth=5,
+    labelCol='INFANT_ALIVE_AT_REPORT'
+)
+
+pipeline = Pipeline(
+	states=[
+		encoder,
+		featuresCreator,
+		classifier
+    ]
+)
+model = pipeline.fit(births_train)
+test = model.transform(births_test)
+
+evaluator = ev.BinaryClassficationEvaluator(
+    labelCol='INFANT_ALIVE_AT_REPORT'
+)
+
+# ROC曲线
+print(evaluator.evaluate(test,{evaluator.metricName: 'areaUnderROC'}))
+print(evaluator.evaluate(test,{evaluator.metricName: 'areaUnderPR'}))
+
+
+6.4.3 聚类
+# 在出生数据中查找相似性
+import pyspark.ml.clustering as clus
+
+kmeans = clus.KMeans(
+	k=5,
+	featuresCol='features'
+)
+
+pipeline = Pipeline(stages=[
+        encoder,
+        featuresCreator, 
+        kmeans]
+)
+
+model = pipeline.fit(births_train)
+
+test = model.transform(births_test)
+
+test \
+    .groupBy('prediction') \
+    .agg({
+        '*': 'count', 
+        'MOTHER_HEIGHT_IN': 'avg'
+    }).collect()
+
+主题挖掘 LDA
+聚类模型不仅限于数字型数据，在自然语言处理中，诸如主题提取等问题也依赖于聚类来检测具有相似主题的文档。
+
+text_data = spark.createDataFrame([
+    ['''To make a computer do anything, you have to write a 
+    computer program. To write a computer program, you have 
+    to tell the computer, step by step, exactly what you want 
+    it to do. The computer then "executes" the program, 
+    following each step mechanically, to accomplish the end 
+    goal. When you are telling the computer what to do, you 
+    also get to choose how it's going to do it. That's where 
+    computer algorithms come in. The algorithm is the basic 
+    technique used to get the job done. Let's follow an 
+    example to help get an understanding of the algorithm 
+    concept.'''],
+    ['''Laptop computers use batteries to run while not 
+    connected to mains. When we overcharge or overheat 
+    lithium ion batteries, the materials inside start to 
+    break down and produce bubbles of oxygen, carbon dioxide, 
+    and other gases. Pressure builds up, and the hot battery 
+    swells from a rectangle into a pillow shape. Sometimes 
+    the phone involved will operate afterwards. Other times 
+    it will die. And occasionally—kapow! To see what's 
+    happening inside the battery when it swells, the CLS team 
+    used an x-ray technology called computed tomography.'''],
+    ['''This technology describes a technique where touch 
+    sensors can be placed around any side of a device 
+    allowing for new input sources. The patent also notes 
+    that physical buttons (such as the volume controls) could 
+    be replaced by these embedded touch sensors. In essence 
+    Apple could drop the current buttons and move towards 
+    touch-enabled areas on the device for the existing UI. It 
+    could also open up areas for new UI paradigms, such as 
+    using the back of the smartphone for quick scrolling or 
+    page turning.'''],
+    ['''The National Park Service is a proud protector of 
+    America’s lands. Preserving our land not only safeguards 
+    the natural environment, but it also protects the 
+    stories, cultures, and histories of our ancestors. As we 
+    face the increasingly dire consequences of climate 
+    change, it is imperative that we continue to expand 
+    America’s protected lands under the oversight of the 
+    National Park Service. Doing so combats climate change 
+    and allows all American’s to visit, explore, and learn 
+    from these treasured places for generations to come. It 
+    is critical that President Obama acts swiftly to preserve 
+    land that is at risk of external threats before the end 
+    of his term as it has become blatantly clear that the 
+    next administration will not hold the same value for our 
+    environment over the next four years.'''],
+    ['''The National Park Foundation, the official charitable 
+    partner of the National Park Service, enriches America’s 
+    national parks and programs through the support of 
+    private citizens, park lovers, stewards of nature, 
+    history enthusiasts, and wilderness adventurers. 
+    Chartered by Congress in 1967, the Foundation grew out of 
+    a legacy of park protection that began over a century 
+    ago, when ordinary citizens took action to establish and 
+    protect our national parks. Today, the National Park 
+    Foundation carries on the tradition of early park 
+    advocates, big thinkers, doers and dreamers—from John 
+    Muir and Ansel Adams to President Theodore Roosevelt.'''],
+    ['''Australia has over 500 national parks. Over 28 
+    million hectares of land is designated as national 
+    parkland, accounting for almost four per cent of 
+    Australia's land areas. In addition, a further six per 
+    cent of Australia is protected and includes state 
+    forests, nature parks and conservation reserves.National 
+    parks are usually large areas of land that are protected 
+    because they have unspoilt landscapes and a diverse 
+    number of native plants and animals. This means that 
+    commercial activities such as farming are prohibited and 
+    human activity is strictly monitored.''']
+], ['documents'])
+
+# RegexTokenizer 分词
+tokenizer = ft.RegexTokenizer(
+    inputCol='documents', 
+    outputCol='input_arr', 
+    pattern='\s+|[,.\"]')
+#.StopWordsRemover 停用词
+stopwords = ft.StopWordsRemover(
+    inputCol=tokenizer.getOutputCol(), #tokenizer的输出作为输入
+    outputCol='input_stop')
+
+# 这里用于下面的例子，不放入管道
+tokenized = stopwords \
+    .transform(
+        tokenizer\
+            .transform(text_data)
+    )
+
+# 计算文档中的单词并返回一个计数向量。向量长度等于所有文档中不同单词的总数 
+stringIndexer = ft.CountVectorizer(
+    inputCol=stopwords.getOutputCol(), 
+    outputCol="input_indexed")
+
+# 例子：
+stringIndexer \
+    .fit(tokenized)\
+    .transform(tokenized)\
+    .select('input_indexed')\
+    .take(2)
+
+# 使用LDA模型--潜在狄利克雷分布
+# k表示期待看到的主题数量，optimizer可以是online或em（表示最大期望算法）
+clustering = clus.LDA(k=2, optimizer='online', featuresCol=stringIndexer.getOutputCol())
+
+pipeline = Pipeline(stages=[
+        tokenizer, 
+        stopwords,
+        stringIndexer, 
+        clustering]
+)
+
+topics = pipeline \
+    .fit(text_data) \
+    .transform(text_data)
+
+topics.select('topicDistribution').collect()
+
+
+
+6.4.4 回归
+# 预测MOTHER_WEIGHT_GAIN
+
+features = ['MOTHER_AGE_YEARS','MOTHER_HEIGHT_IN',
+            'MOTHER_PRE_WEIGHT','DIABETES_PRE',
+            'DIABETES_GEST','HYP_TENS_PRE', 
+            'HYP_TENS_GEST', 'PREV_BIRTH_PRETERM',
+            'CIG_BEFORE','CIG_1_TRI', 'CIG_2_TRI', 
+            'CIG_3_TRI'
+           ]
+
+# 由于所有特征都是数字型的，所以将它们整理在一起，并使用ChiSqSelector来选择前6个最重要的特征
+
+featuresCreator = ft.VectorAssembler(
+    inputCols=[col for col in features[1:]], 
+    outputCol='features'
+)
+
+selector = ft.ChiSqSelector(
+    numTopFeatures=6, 
+    outputCol="selectedFeatures", 
+    labelCol='MOTHER_WEIGHT_GAIN'
+)
+
+# 为了预测增加的体重，使用BGDT
+import pyspark.ml.regression as reg
+
+regressor = reg.GBTregressor(
+    maxIter=15,
+    maxDepth=3,
+    labelCol='MOTHER_WEIGHT_GAIN'
+)
+
+pipeline = Pipeline(stages=[
+        featuresCreator, 
+        selector,
+        regressor])
+
+weightGain = pipeline.fit(births_train)
+
+evaluator = ev.RegressionEvaluator(
+	predictionCol="prediction",
+	labelCol="MOTHER_WEIGHT_GAIN"
+)
+print(evalutor.evaluate(
+	weightGain.transform(births_test),
+	{evaluator.metricName: 'r2'}
+))
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  

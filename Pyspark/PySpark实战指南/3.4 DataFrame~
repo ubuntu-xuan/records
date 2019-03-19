@@ -1,0 +1,57 @@
+3.4.1 生成自己的JSON数据
+  stringJSONRDD = sc.parallelize()
+3.4.2 创建一个DataFrame
+  swimmersJSON = spark.read.json(stringJSONRDD)
+3.4.3 创建一个临时表
+  swimmersJSON.createoReplaceTempView("swimmersJSON")
+
+3.5 简单的DataFrame查询
+3.5.1 DataFrame API查询 
+  show()
+3.5.2 SQL查询
+  spark.sql("select * from swimmersJSON").collect()
+  ps: .collect()针对小的DataFrmae,因为会返回所有行
+      .show()  .take()
+
+3.6 RDD的交互操作
+3.6.1 使用反射来推断模式
+  # 打印模式
+  swimmersJSON.printSchema()
+3.6.2 编程指定模式
+  # from pyspark.sql.types import *
+  stringCSVRDD = sc.parallelize([(),(),()])
+  # StructField(name,dataType,nullable)
+  schema = StructType([StructField("id",LongType(),True),StructField(),StructField()])
+  swimmers = spark.createDataFrame(stringCSVRDD,schema)
+
+3.7 利用DataFrame API查询
+3.7.1 行数 .count()
+3.7.2 运行筛选语句
+  swimmers.select("id","age").filter("age = 22").show()
+  #swimmers.select(swimmers.id,swimmers.age).filter(swimmers.age = 22).show()
+  
+  # 使用类似SQL语法，like
+  swimmers.select("name","eyeColor").filter("eyeColor like 'b%'").show()
+
+3.8 利用SQL查询
+3.8.1 行数
+  spark.sql("select count(1) from swimmers").show()
+3.8.2 利用where子句运行筛选语句
+   spark.sql("select id,age  from swimmers where age = 22").show()
+   spark.sql("select name,eyeColor from swimmers where eyeColor like 'b%'").show()
+
+
+3.9 DataFrame场景---实时飞行性能
+3.9.1 准备数据
+...
+# inferSchema='true' 自动推断数据类型，可能会出现不准确的现象
+airports = spark.read.csv(FilePath,header='ture',inferSchema='true',sep='\t'))
+...
+# 缓存数据集
+flightPerf.cache()
+
+
+
+
+
+

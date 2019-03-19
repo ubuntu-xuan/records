@@ -1,0 +1,13 @@
+机器学习实战
+1.欧氏距离：
+  若希望相似度在0-1之间变化，可以用"相似度=1/(1+距离)"
+
+2.皮尔逊相关系数（Pearson correlation）：度量两个向量之间的相似度，与欧氏距离对比，它对用户评级的量级不敏感，在NumPy中，由函数corrcoef()进行计算。
+   Pearson相关系数 = 两个变量的协方差 / 两个变量的标准差
+  皮尔逊相关系数的取值范围从-1到+1,可以通过0.5 + 0.5 * corrcoef(),将取值范围归一化到0-1之间。 
+
+  ps:如何通俗易懂地理解皮尔逊相关系数？https://blog.csdn.net/huangfei711/article/details/78456165?utm_source=gold_browser_extension
+  
+
+3.余弦相似度，通过计算两个向量的夹角余弦值来评估他们的相似度
+  ps:https://www.cnblogs.com/dsgcBlogs/p/8619566.html

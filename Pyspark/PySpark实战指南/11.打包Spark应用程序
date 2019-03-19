@@ -1,0 +1,83 @@
+11.1 spark-submit命令
+# 不仅允许提交作业，还可以终止作业或检查其状态
+在一般级别上：
+spark-submit [options] <python file> [app arguments]
+
+11.2 以编程方式部署应用程序
+11.2.1 配置你的SparkSession
+spark = SparkSession \ 
+	.builder \ 
+	.appName("")
+	.getOrCreate()
+
+11.2.3 模块化代码
+模块结构
+# 把无关方法的代码放进additionalCode文件夹
+
+# setup.py
+# 定义项目的setup.py文件 https://pythonhosted.org/an_example_pypi_project/setuptools.html
+
+from setuptools import setup
+
+setup(
+    name='PySparkUtilities',
+    version='0.1dev',
+    packages=['utilities', 'utilities/converters'],
+    license='''
+        Creative Commons 
+        Attribution-Noncommercial-Share Alike license''',
+    long_description='''
+        An example of how to package code for PySpark'''
+)
+
+# 在实用工具文件夹utilitesk中 __init__.py，有效地公开了geoCalc.py和converters
+#__init__.py 进行模块化的文件
+
+
+from .geoCalc import geoCalc
+
+__all__ = ['geoCalc','converters']
+
+############### geoCalc.py  #####################
+class geoCalc(object):
+    @staticmethod # 静态方法
+    def calculateDistance(p1, p2):
+
+############ converters ################
+# distance.py
+# base.py
+
+ 
+创建一个egg文件
+将模块打包进一个.zip或者一个.egg
+python setup.py bdist_egg
+会生成build dist .egg
+
+Spark中的用户自定义函数
+getDistance = func.udf(
+	lambda lat1,long1,lat2,long2:
+		geo.claculateDistance(
+			(lat1,long1),
+			(lat2,long2)		
+		)
+)
+
+uber = uber.withColumn(
+	'miles',
+		getDistance(
+			func.col('pickup_latitude'),
+			func.col('pickup_longitude'),
+			func.col('dropoff_latitude'),
+			func.col('pickup_longitude'),
+		)
+)
+
+
+11.2.4 提交作业
+launch_spark.submit.sh
+--master local[4]
+--py-files additiionalCode/dist/PySparkUtilities-0.1.dev0-py3.4.egg  
+calcualtingGeoDistance.py
+
+
+
