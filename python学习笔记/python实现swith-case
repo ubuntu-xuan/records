@@ -1,0 +1,18 @@
+def a():
+    print("this a")
+
+def b():
+    print("this b")
+
+def c():
+    print("this c")
+
+
+switch = {
+    "a":a,
+    "b":b,
+    "c":c
+}
+
+do = switch.get(raw_input('>'),c) # 不输入参数默认运行c
+do()

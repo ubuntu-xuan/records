@@ -10,9 +10,8 @@
     总体上来说，协同过滤是一种利用集体智慧的方法，使用部分或所有用户的行为数据来进行推荐，不同用户通过推荐系统间接地相互协作，来获取各自感兴趣的信息。协同过滤的核心是找出用户或项目的邻居，即相似的用户或项目，然后取若干个最近邻居推荐给用户。根据具体的实现，协同过滤又可以被分为多个子类别，分别是：
     1.基于记忆的协同过滤 (Memory-Based Collaborative Filtering)：
 	基于记忆的协同过滤算法使用全部或大部分用户—项目数据来生成预测。基于记忆的协同过滤常用的有两种:
-        (1)基于物品的协同过滤(Item-Based Collaborative Filtering，Item-Based CF)
-        (2)基于用户的协同过滤 (User-Based Collaborative Filtering，User-Based CF)：
-	   比如：把你朋友喜欢的电影推荐给你
+        (1)基于物品的协同过滤(Item-Based Collaborative Filtering，Item-Based CF): 物品的相似度
+        (2)基于用户的协同过滤 (User-Based Collaborative Filtering，User-Based CF)： 用户的相似度
            
         与基于内容的推荐算法相比，Item-Based CF 和 User-Based CF 有下列优点: 
 	  - 1) 能够过滤难以进行内容分析的信息，如艺术品、音乐、文本、视频; 

@@ -1,0 +1,13 @@
+http://spark.apache.org/docs/2.2.0/api/python/pyspark.ml.html#pyspark.ml.regression.LinearRegression
+
+# 用的是小二乘法
+
+class pyspark.ml.regression.LinearRegression(self, featuresCol="features", labelCol="label", predictionCol="prediction", maxIter=100, regParam=0.0, elasticNetParam=0.0, tol=1e-6, fitIntercept=True, standardization=True, solver="auto", weightCol=None, aggregationDepth=2)
+
+Linear regression.
+  The learning objective is to minimize the squared error, with regularization. The specific squared error loss function used is: L = 1/2n ||A coefficients - y||^2^
+  This supports multiple types of regularization:
+    none (a.k.a. ordinary least squares)
+      L2 (ridge regression)
+      L1 (Lasso)
+      L2 + L1 (elastic net)
